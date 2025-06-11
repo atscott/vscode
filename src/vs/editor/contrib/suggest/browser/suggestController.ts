@@ -348,9 +348,6 @@ export class SuggestController implements IEditorContribution {
 			this.editor.pushUndoStop();
 		}
 
-		// Re-initialize _lineSuffix right before getting overwrite info to ensure it's based on the current editor state.
-		// This is important if the completion provider was slow and the user typed more characters.
-		this._lineSuffix.value = new LineSuffix(this.editor.getModel()!, this.editor.getPosition()!);
 		// compute overwrite[Before|After] deltas BEFORE applying extra edits
 		const info = this.getOverwriteInfo(item, Boolean(flags & InsertFlags.AlternativeOverwriteConfig));
 
@@ -582,21 +579,30 @@ export class SuggestController implements IEditorContribution {
 	}
 
 	getOverwriteInfo(item: CompletionItem, toggleMode: boolean): { overwriteBefore: number; overwriteAfter: number } {
-		assertType(this.editor.hasModel());
+		// const model = this.editor.getModel()!; // No longer needed here with new logic
+		const currentPosition = this.editor.getPosition()!;
+		// itemPosition is item.position, which is the cursor position when the item was generated.
+		// item.editStart is the start of the word being completed.
 
-		let replace = this.editor.getOption(EditorOption.suggest).insertMode === 'replace';
+		// overwriteBefore is the text from the start of the word (item.editStart) up to the current cursor position.
+		const overwriteBefore = Math.max(0, currentPosition.column - item.editStart.column);
+
+		let overwriteAfter: number;
+		const suggestOptions = this.editor.getOption(EditorOption.suggest);
+		let currentInsertMode = suggestOptions.insertMode;
 		if (toggleMode) {
-			replace = !replace;
+			currentInsertMode = currentInsertMode === 'replace' ? 'insert' : 'replace';
 		}
-		const overwriteBefore = item.position.column - item.editStart.column;
-		const overwriteAfter = (replace ? item.editReplaceEnd.column : item.editInsertEnd.column) - item.position.column;
-		const columnDelta = this.editor.getPosition().column - item.position.column;
-		const suffixDelta = this._lineSuffix.value ? this._lineSuffix.value.delta(this.editor.getPosition()) : 0;
 
-		return {
-			overwriteBefore: overwriteBefore + columnDelta,
-			overwriteAfter: overwriteAfter + suffixDelta
-		};
+		if (currentInsertMode === 'replace') {
+			// In replace mode, overwrite text from the current cursor up to where the original suggestion's replace range ended.
+			overwriteAfter = Math.max(0, item.editReplaceEnd.column - currentPosition.column);
+		} else { // insertMode === 'insert'
+			// In insert mode, overwrite text from the current cursor up to where the original suggestion's insert range ended.
+			overwriteAfter = Math.max(0, item.editInsertEnd.column - currentPosition.column);
+		}
+
+		return { overwriteBefore, overwriteAfter };
 	}
 
 	private _alertCompletionItem(item: CompletionItem): void {
