@@ -348,6 +348,9 @@ export class SuggestController implements IEditorContribution {
 			this.editor.pushUndoStop();
 		}
 
+		// Re-initialize _lineSuffix right before getting overwrite info to ensure it's based on the current editor state.
+		// This is important if the completion provider was slow and the user typed more characters.
+		this._lineSuffix.value = new LineSuffix(this.editor.getModel()!, this.editor.getPosition()!);
 		// compute overwrite[Before|After] deltas BEFORE applying extra edits
 		const info = this.getOverwriteInfo(item, Boolean(flags & InsertFlags.AlternativeOverwriteConfig));
 
